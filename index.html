@@ -3,9 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Holo-Tulip Interface v3 - Advanced Mouse Control</title>
+    <title>Holo-Tulip Interface v3.5 - Fixed Rotation</title>
     <style>
-        /* Cursor inicial */
         body { margin: 0; overflow: hidden; background-color: #050005; font-family: 'Consolas', monospace; cursor: crosshair; }
         canvas { display: block; }
         
@@ -24,6 +23,17 @@
             color: #ff0055; font-size: 1.2rem; text-shadow: 0 0 10px #ff0055;
             transition: opacity 0.5s;
         }
+
+        /* Indicador de rotación (aparece al hacer click derecho) */
+        #rotate-cursor {
+            position: absolute; width: 40px; height: 40px;
+            border: 2px dashed rgba(255, 255, 255, 0.5);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            display: none;
+            z-index: 10;
+        }
     </style>
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -31,13 +41,14 @@
 <body>
 
     <div id="loading">GENERATING FLORA...</div>
+    <div id="rotate-cursor"></div>
     <div id="ui-layer">
-        <h1>PROJECT: TULIP v3</h1>
+        <h1>PROJECT: TULIP v3.5</h1>
         <div class="status" id="debug-state">STATE: DISPERSED</div>
         <div class="instructions">
             [MOUSE MOVE] Position<br>
             [<span class="key-action">L-CLICK</span> HOLD] Form Tulip<br>
-            [<span class="key-action">R-CLICK</span> DRAG] Rotate Y-Axis<br>
+            [<span class="key-action">R-CLICK</span> DRAG] Rotate 3D<br>
             [<span class="key-action">SCROLL</span>] Zoom In/Out
         </div>
     </div>
@@ -53,17 +64,15 @@
         void main() {
             vec3 pos = position;
 
-            // --- LÓGICA DE DISPERSIÓN ---
+            // Dispersión
             float noiseX = sin(uTime * 2.0 + aRandom * 10.0) * 2.0;
             float noiseY = cos(uTime * 1.5 + aRandom * 20.0) * 2.0;
             float noiseZ = sin(uTime * 2.5 + aRandom * 30.0) * 2.0;
-            
             vec3 explosionDir = normalize(pos) * (20.0 + aRandom * 30.0);
             vec3 chaoticPos = pos + explosionDir + vec3(noiseX, noiseY, noiseZ);
-            
             pos = mix(pos, chaoticPos, uExplosion);
 
-            // Rotación suave interna extra para que las partículas siempre se muevan un poco
+            // Pequeña vida interna
             float angle = uTime * 0.05; 
             float s = sin(angle); float c = cos(angle);
             float x = pos.x * c - pos.z * s;
@@ -75,7 +84,6 @@
             
             float sizeMod = 1.0 + uExplosion * 2.0; 
             gl_PointSize = (4.0 * aSize * sizeMod) * (60.0 / -mvPosition.z);
-            
             vPos = position; 
             vAlpha = 1.0 - (uExplosion * 0.4);
         }
@@ -91,7 +99,6 @@
             float dist = length(coord);
             if(dist > 0.5) discard;
 
-            // --- COLOREADO TULIPÁN ---
             float height = smoothstep(-10.0, 20.0, vPos.y);
             vec3 darkPink = vec3(0.8, 0.0, 0.4); 
             vec3 lightPink = vec3(1.0, 0.6, 0.8); 
@@ -114,48 +121,48 @@
     <script>
         const config = {
             posLerp: 0.08,  
-            baseZ: 0,
             zoomSpeed: 0.1,
-            minZ: 20,
-            maxZ: 150
+            minZ: 10,
+            maxZ: 200,
+            rotationSpeed: 0.005
         };
 
-        // Estado inicial
         const state = {
-            targetPos: new THREE.Vector3(0, 0, config.baseZ),
-            currentPos: new THREE.Vector3(0, 0, config.baseZ),
+            targetPos: new THREE.Vector3(0, 0, 0),
+            currentPos: new THREE.Vector3(0, 0, 0),
             targetExplosion: 1.0, 
             currentExplosion: 1.0,
-            manualRotationAdd: 0, // Acumulador para rotación con click derecho
+            
+            // Rotación manual
+            rotX: 0, 
+            rotY: 0,
             isRightDragging: false,
-            lastMouseX: 0
+            lastMouseX: 0,
+            lastMouseY: 0
         };
 
         const els = {
             loading: document.getElementById('loading'),
-            debug: document.getElementById('debug-state')
+            debug: document.getElementById('debug-state'),
+            cursor: document.getElementById('rotate-cursor')
         };
 
-        // --- THREE.JS SETUP ---
+        // --- THREE.JS ---
         const scene = new THREE.Scene();
         scene.fog = new THREE.FogExp2(0x050005, 0.015);
 
         const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-        // Posición inicial de la cámara (afectada por zoom)
         camera.position.set(0, 0, 60);
 
         const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-        // Importante: permitir capturar eventos de rueda en el canvas
         document.body.appendChild(renderer.domElement);
 
-        // --- GEOMETRÍA (Igual que antes) ---
+        // --- GEOMETRÍA ---
         const geometry = new THREE.BufferGeometry();
         const count = 35000;
-        const positions = [];
-        const sizes = [];
-        const randoms = [];
+        const positions = []; const sizes = []; const randoms = [];
 
         for(let i=0; i<count; i++) {
             let u = Math.random(); let v = Math.random() * Math.PI * 2;
@@ -182,71 +189,82 @@
 
         setTimeout(() => { els.loading.style.opacity = 0; }, 1000);
 
+        // --- INPUT HANDLING ---
 
-        // --- CONTROL DEL MOUSE AVANZADO ---
-
-        // 1. ZOOM (Rueda del ratón)
-        renderer.domElement.addEventListener('wheel', (e) => {
-            e.preventDefault(); // Evitar scroll de la página
-            // deltaY es positivo al bajar la rueda (alejarse), negativo al subir (acercarse)
+        // 1. Zoom (Scroll)
+        window.addEventListener('wheel', (e) => {
             camera.position.z += e.deltaY * config.zoomSpeed;
-            // Limitar el zoom
             camera.position.z = THREE.MathUtils.clamp(camera.position.z, config.minZ, config.maxZ);
-        }, { passive: false });
+        });
 
-        // 2. Bloquear menú contextual (Click derecho nativo)
-        renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
+        // 2. Bloquear menú contextual (FUNDAMENTAL para click derecho)
+        window.addEventListener('contextmenu', e => e.preventDefault());
 
-        // 3. Mouse Down (Detectar qué botón se pulsó)
-        renderer.domElement.addEventListener('mousedown', (e) => {
-            if (e.button === 0) { 
-                // --- Click Izquierdo: Formar ---
+        // 3. Mouse Down
+        window.addEventListener('mousedown', (e) => {
+            if (e.button === 0) { // Click Izquierdo
                 state.targetExplosion = 0.0;
                 els.debug.innerText = "STATE: FORMING TULIP";
                 els.debug.style.color = "#fff";
-            } else if (e.button === 2) {
-                // --- Click Derecho: Iniciar Rotación ---
+            } 
+            else if (e.button === 2) { // Click Derecho
                 state.isRightDragging = true;
                 state.lastMouseX = e.clientX;
-                document.body.style.cursor = 'grabbing'; // Feedback visual
+                state.lastMouseY = e.clientY;
+                
+                // UI
+                document.body.style.cursor = 'none';
+                els.cursor.style.display = 'block';
+                els.cursor.style.left = e.clientX + 'px';
+                els.cursor.style.top = e.clientY + 'px';
             }
         });
 
-        // 4. Mouse Up (Soltar botones)
+        // 4. Mouse Up
         window.addEventListener('mouseup', (e) => {
-             if (e.button === 0) {
-                // --- Soltar Izquierdo: Dispersar ---
+            if (e.button === 0) {
                 state.targetExplosion = 1.0;
                 els.debug.innerText = "STATE: DISPERSED";
                 els.debug.style.color = "#ff6699";
-            } else if (e.button === 2) {
-                // --- Soltar Derecho: Parar Rotación ---
+            } 
+            else if (e.button === 2) {
                 state.isRightDragging = false;
-                document.body.style.cursor = 'crosshair'; // Restaurar cursor
+                document.body.style.cursor = 'crosshair';
+                els.cursor.style.display = 'none';
             }
         });
 
-        // 5. Mouse Move (Mover posición O rotar)
-        document.addEventListener('mousemove', (e) => {
+        // 5. Mouse Move
+        window.addEventListener('mousemove', (e) => {
             if (state.isRightDragging) {
-                // --- Lógica de Rotación (Click derecho mantenido) ---
+                // Mover cursor custom
+                els.cursor.style.left = e.clientX + 'px';
+                els.cursor.style.top = e.clientY + 'px';
+
+                // Calcular Deltas
                 const deltaX = e.clientX - state.lastMouseX;
-                // Ajustar la velocidad de rotación (0.005 es arbitrario)
-                state.manualRotationAdd += deltaX * 0.005;
+                const deltaY = e.clientY - state.lastMouseY;
+
+                // Aplicar Rotación
+                state.rotY += deltaX * config.rotationSpeed;
+                state.rotX += deltaY * config.rotationSpeed;
+
+                // Actualizar referencias
                 state.lastMouseX = e.clientX;
+                state.lastMouseY = e.clientY;
             } else {
-                // --- Lógica de Posición (Solo si NO se está rotando) ---
+                // Mover Flor (Si no estamos rotando)
                 const nX = (e.clientX / window.innerWidth) * 2 - 1;
                 const nY = -(e.clientY / window.innerHeight) * 2 + 1;
-                // Ajustamos el multiplicador según el zoom actual para que el movimiento se sienta consistente
+                
+                // Factor de movimiento basado en zoom
                 const moveScale = camera.position.z * 0.6; 
                 state.targetPos.x = nX * moveScale;
                 state.targetPos.y = nY * (moveScale * 0.6);
             }
         });
 
-
-        // --- ANIMATION LOOP ---
+        // --- ANIMATION ---
         const clock = new THREE.Clock();
 
         function animate() {
@@ -254,17 +272,17 @@
             const time = clock.getElapsedTime();
             material.uniforms.uTime.value = time;
 
-            // 1. Interpolación de Explosión
+            // Lerps
             state.currentExplosion += (state.targetExplosion - state.currentExplosion) * 0.05;
             material.uniforms.uExplosion.value = state.currentExplosion;
 
-            // 2. Interpolación de Posición
             state.currentPos.lerp(state.targetPos, config.posLerp);
             flower.position.copy(state.currentPos);
 
-            // 3. Aplicar Rotación
-            // Sumamos una rotación automática lenta + la rotación manual acumulada
-            flower.rotation.y = (time * 0.05) + state.manualRotationAdd;
+            // APLICAR ROTACIÓN MANUAL
+            // Usamos rotación euler simple
+            flower.rotation.y = state.rotY + (time * 0.05); // Rotación base + manual Y
+            flower.rotation.x = state.rotX;                 // Manual X (inclinación)
 
             renderer.render(scene, camera);
         }
